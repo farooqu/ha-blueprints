@@ -10,7 +10,7 @@ blueprint:
     coarser data is context only. No observations, averaging, unit conversion,
     speech style, or LLM configuration. Requires response-capable Assist scripts.
   domain: script
-  source_url: https://code.thefarooqs.net/umer/ha-blueprints/raw/branch/main/weather/voice_forecast.yaml
+  source_url: https://raw.githubusercontent.com/farooqu/ha-blueprints/main/weather/voice_forecast.yaml
   homeassistant:
     min_version: 2026.11.0
   input:

@@ -11,19 +11,15 @@ data for Assist/LLM agents, not spoken text or current observations.
 
 ### Installation and updates
 
-[![Import this blueprint into Home Assistant](https://my.home-assistant.io/badges/blueprint_import.svg)](https://my.home-assistant.io/redirect/blueprint_import/?blueprint_url=https%3A%2F%2Fcode.thefarooqs.net%2Fumer%2Fha-blueprints%2Fraw%2Fbranch%2Fmain%2Fweather%2Fvoice_forecast.yaml)
+[![Import this blueprint into Home Assistant](https://my.home-assistant.io/badges/blueprint_import.svg)](https://my.home-assistant.io/redirect/blueprint_import/?blueprint_url=https%3A%2F%2Fraw.githubusercontent.com%2Ffarooqu%2Fha-blueprints%2Fmain%2Fweather%2Fvoice_forecast.yaml)
 
 The button opens Home Assistant's import dialog with this blueprint URL prefilled.
 
-The blueprint's `source_url` identifies its raw file in this repository. HA must
-be able to read that URL without an interactive login. An unauthenticated probe
-of the forge's raw README route returned a sign-in page, so anonymous access
-cannot be assumed. Verify access before importing; never put credentials in a
-blueprint URL.
+Installation and re-import use the [public GitHub mirror](https://github.com/farooqu/ha-blueprints).
+The button and the blueprint's `source_url` point to its public raw YAML, so HA
+does not need a forge login or credentials in the URL.
 
-Once that prerequisite is satisfied:
-
-1. Select the button above, or import the [raw YAML URL](https://code.thefarooqs.net/umer/ha-blueprints/raw/branch/main/weather/voice_forecast.yaml)
+1. Select the button above, or import the [raw YAML URL](https://raw.githubusercontent.com/farooqu/ha-blueprints/main/weather/voice_forecast.yaml)
    through Settings → Automations & scenes → Blueprints.
 2. Create a script, select any forecast-capable weather entity, and review the
    four configurable clock boundaries. No composite weather entity is required.

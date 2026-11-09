@@ -41,7 +41,7 @@ observations, real metric/customary conversion, malformed/duplicate records,
 missing units, provider exceptions, and parallel request isolation.
 
 HA/dependency deprecation warnings are left visible. These tests do **not**
-certify a live provider's forecast accuracy, the forge source URL's
+certify a live provider's forecast accuracy, the public mirror URL's
 accessibility, a browser UI flow, or an LLM's interpretation/spoken summary.
 Evaluate the latter separately with a chosen model; every spoken number should
 trace to a returned value, unit, date, and semantic label.
