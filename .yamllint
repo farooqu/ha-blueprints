@@ -1,0 +1,5 @@
+extends: default
+rules:
+  document-start: disable
+  # HA's self-contained Jinja expressions cannot always fit a prose line limit.
+  line-length: disable
