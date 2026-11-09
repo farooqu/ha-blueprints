@@ -11,6 +11,10 @@ data for Assist/LLM agents, not spoken text or current observations.
 
 ### Installation and updates
 
+[![Import this blueprint into Home Assistant](https://my.home-assistant.io/badges/blueprint_import.svg)](https://my.home-assistant.io/redirect/blueprint_import/?blueprint_url=https%3A%2F%2Fcode.thefarooqs.net%2Fumer%2Fha-blueprints%2Fraw%2Fbranch%2Fmain%2Fweather%2Fvoice_forecast.yaml)
+
+The button opens Home Assistant's import dialog with this blueprint URL prefilled.
+
 The blueprint's `source_url` identifies its raw file in this repository. HA must
 be able to read that URL without an interactive login. An unauthenticated probe
 of the forge's raw README route returned a sign-in page, so anonymous access
@@ -19,7 +23,8 @@ blueprint URL.
 
 Once that prerequisite is satisfied:
 
-1. Import the **raw YAML URL** through Settings → Automations & scenes → Blueprints.
+1. Select the button above, or import the [raw YAML URL](https://code.thefarooqs.net/umer/ha-blueprints/raw/branch/main/weather/voice_forecast.yaml)
+   through Settings → Automations & scenes → Blueprints.
 2. Create a script, select any forecast-capable weather entity, and review the
    four configurable clock boundaries. No composite weather entity is required.
 3. Give the script a factual name/description for its forecast location and
