@@ -1,12 +1,13 @@
 blueprint:
-  name: Voice forecast — structured time windows
+  name: LLM weather forecast — structured time windows
   description: >-
     Forecast-only tool for general weather reports, multi-day outlooks, and
     specific time windows in Assist/LLM agents. Select any forecast-capable weather
     entity, create a script, and expose that script to Assist. Review the clock
     boundaries for your household; they are not universal language/daylight rules.
-    HA resolves dates in its configured timezone. Full days prefer daily, then
-    twice-daily, then hourly data. Intraday answers require hourly samples;
+    HA resolves dates in its configured timezone. Full-day overviews prefer daily,
+    then twice-daily, then hourly data. Explicit hourly detail and intraday answers
+    require hourly samples;
     coarser data is context only. No observations, averaging, unit conversion,
     speech style, or LLM configuration. Requires response-capable Assist scripts.
   domain: script
@@ -43,8 +44,8 @@ blueprint:
 description: >-
   Get a general weather forecast report, a multi-day outlook, or answers about
   specific forecast times. Use full_day for general reports on the requested day
-  and days for consecutive-day outlooks. For timing within a day, use a day-part
-  or hours request, making an additional call if needed. Current observations
+  and days for consecutive-day outlooks. Use detail=hourly for changes throughout
+  a full day, or select a day-part/hours. Current observations
   require a separate tool. Pass structured days, not calculated
   dates. A weekday includes today; weeks_later=1 adds seven days. Clarify ambiguous
   next weekdays, AM/PM, or weekend conventions instead of guessing. Night starts
@@ -54,6 +55,8 @@ description: >-
   a day-wide probability, or coarse context an hourly answer. Units and coverage
   are explicit in results. Only temperature, condition, precipitation and wind
   measurements are returned when available; no pressure, humidity or UV promise.
+  Empty metadata is omitted; absent window status means ok. Forecast issue time
+  is unknown; resolved_at is not a forecast issue time.
 fields:
   day:
     name: Starting day
@@ -99,6 +102,17 @@ fields:
         max: 7
         step: 1
         mode: box
+  detail:
+    name: Forecast detail
+    description: >-
+      Default overview (compact full-day outlook); hourly for throughout-the-day
+      detail. Day-parts always use hourly data.
+    default: overview
+    selector:
+      select:
+        options:
+          - overview
+          - hourly
   part_of_day:
     name: Window
     description: >-
@@ -150,6 +164,7 @@ sequence:
         {% set count = days | default(1) %}
         {% set weeks = weeks_later | default(0) %}
         {% set part = part_of_day | default('full_day') %}
+        {% set level = detail | default('overview') %}
         {% set begin = start_time | default(none) %}
         {% set finish = end_time | default(none) %}
         {% set time_pattern = '^([01][0-9]|2[0-3]):[0-5][0-9](:00)?$' %}
@@ -160,8 +175,9 @@ sequence:
               or weeks is not number or weeks is boolean or not is_number(weeks)
               or weeks != weeks | int or not 0 <= weeks <= 1
               or (d not in weekdays and weeks != 0)
+              or level not in ['overview', 'hourly']
               or part not in ['full_day', 'morning', 'afternoon', 'evening', 'night', 'hours'] %}
-          {% set ns.error = {'code': 'invalid_request', 'detail': 'Invalid day, count, or window.'} %}
+          {% set ns.error = {'code': 'invalid_request', 'detail': 'Invalid day, count, window, or detail.'} %}
         {% elif (part != 'hours' and (begin is not none or finish is not none))
              or (part == 'hours' and (begin is not string or not begin | regex_match(time_pattern)))
              or (finish is not none and (finish is not string or not finish | regex_match(time_pattern))) %}
@@ -221,9 +237,10 @@ sequence:
         {% endif %}
         {{ {'resolved_at': current.isoformat(), 'timezone': current.tzinfo | string,
             'part': part, 'at_time': part == 'hours' and finish is none,
+            'hourly_required': part != 'full_day' or level == 'hourly',
             'windows': ns.windows, 'error': ns.error} }}
       response: >-
-        {{ dict(schema_version=1, status='error', resolved_at=request.resolved_at,
+        {{ dict(schema_version=2, status='error', resolved_at=request.resolved_at,
                 timezone=request.timezone, source_entity=forecast_source,
                 error=request.error, windows=[]) }}
   - if: '{{ request.error is not none }}'
@@ -259,7 +276,7 @@ sequence:
       - stop: Weather entity cannot supply forecasts
         response_variable: response
   - variables:
-      candidates: "{{ ['daily', 'twice_daily', 'hourly'] if request.part == 'full_day' else ['hourly', 'twice_daily', 'daily'] }}"
+      candidates: "{{ ['hourly', 'twice_daily', 'daily'] if request.hourly_required else ['daily', 'twice_daily', 'hourly'] }}"
       chosen: {}
       context_result: {}
       diagnostic_result: {}
@@ -354,7 +371,7 @@ sequence:
                 candidate: >-
                   {% set ns = namespace(windows=[], answers=0, contexts=0, rows=0, partial=false) %}
                   {% set hourly = forecast_type == 'hourly' %}
-                  {% set coarse_context = request.part != 'full_day' and not hourly %}
+                  {% set coarse_context = request.hourly_required and not hourly %}
                   {% for window in request.windows %}
                     {% set w = namespace(rows=[], context=[], missing=[], summary={}, status='ok', code=none) %}
                     {% for item in normalized.records if not window.past %}
@@ -429,18 +446,29 @@ sequence:
                         {% endif %}
                       {% endfor %}
                     {% endif %}
-                    {% set coverage = {'basis': 'hourly_sample_grid' if hourly else 'provider_dates' if forecast_type == 'daily' else 'provider_period_starts',
-                      'temporal_completeness': 'unknown', 'record_count': w.rows | count,
-                      'first_returned': w.rows[0].datetime if w.rows else none,
-                      'last_returned': w.rows[-1].datetime if w.rows else none} %}
+                    {% set coverage = {'temporal_completeness': 'unknown'} %}
                     {% if hourly %}
-                      {% set coverage = dict(coverage, missing_hourly_starts=w.missing,
+                      {% set coverage = dict(coverage,
                         sample_grid_complete=(not w.missing and w.rows | count > 0) if grid.known else none) %}
+                      {% if w.missing %}
+                        {% set coverage = dict(coverage, missing_hourly_starts=w.missing) %}
+                      {% endif %}
                     {% endif %}
-                    {% set ns.windows = ns.windows + [dict(anchor_date=window.anchor_date,
-                      requested_start=window.start, requested_end=window.end,
-                      status=w.status, error=dict(code=w.code) if w.code else none,
-                      coverage=coverage, periods=w.rows, context=w.context, summary=w.summary)] %}
+                    {% set output = dict(requested_start=window.start, requested_end=window.end,
+                      coverage=coverage, periods=w.rows) %}
+                    {% if w.status != 'ok' %}
+                      {% set output = dict(output, status=w.status) %}
+                    {% endif %}
+                    {% if w.code %}
+                      {% set output = dict(output, error=dict(code=w.code)) %}
+                    {% endif %}
+                    {% if w.context %}
+                      {% set output = dict(output, context=w.context) %}
+                    {% endif %}
+                    {% if w.summary %}
+                      {% set output = dict(output, summary=w.summary) %}
+                    {% endif %}
+                    {% set ns.windows = ns.windows + [output] %}
                     {% set ns.contexts = ns.contexts + w.context | count %}
                     {% set ns.rows = ns.rows + (w.rows | count) + (w.context | count) %}
                     {% set ns.partial = ns.partial or w.status != 'ok' %}
@@ -456,7 +484,7 @@ sequence:
                 - variables:
                     chosen: '{{ candidate }}'
               else:
-                - if: "{{ request.part != 'full_day' and candidate.contexts > 0 and not context_result }}"
+                - if: "{{ request.hourly_required and candidate.contexts > 0 and not context_result }}"
                   then:
                     - variables:
                         context_result: '{{ candidate }}'
@@ -468,17 +496,28 @@ sequence:
            none if chosen else 'precision_unavailable' if context_result else
            'forecast_failed' if failed_calls else 'out_of_range' if seen_data else 'no_data' }}
       response: >-
-        {{ dict(schema_version=1,
+        {% set output = dict(schema_version=2,
           status='error' if error_code else 'partial' if result.partial else 'ok',
           resolved_at=request.resolved_at, timezone=request.timezone,
-          source_entity=forecast_source, forecast_type=result.forecast_type if result else none,
-          forecast_issue_time='unknown', units=units,
-          available_first_start=result.available_first_start if result else none,
-          available_last_start=result.available_last_start if result else none,
-          error=dict(code=error_code, record_limit=72, requested_records=result.row_count)
-            if error_code == 'request_too_large' else dict(code=error_code) if error_code else none,
-          windows=[] if error_code == 'request_too_large' else result.windows if result else [],
-          warnings=result.warnings if result else {},
-          requested_windows=request.windows | map(attribute='anchor_date') | list) }}
+          forecast_type=result.forecast_type if result else none, units=units,
+          windows=[] if error_code == 'request_too_large' else result.windows if result else []) %}
+        {% if error_code %}
+          {% set output = dict(output, error=dict(code=error_code,
+            record_limit=72, requested_records=result.row_count)
+            if error_code == 'request_too_large' else dict(code=error_code)) %}
+        {% endif %}
+        {% if result and result.warnings %}
+          {% set output = dict(output, warnings=result.warnings) %}
+        {% endif %}
+        {% if output.status != 'ok' %}
+          {% set output = dict(output, source_entity=forecast_source) %}
+          {% if result and result.available_first_start is not none %}
+            {% set output = dict(output, available_first_start=result.available_first_start) %}
+          {% endif %}
+          {% if result and result.available_last_start is not none %}
+            {% set output = dict(output, available_last_start=result.available_last_start) %}
+          {% endif %}
+        {% endif %}
+        {{ output }}
   - stop: Forecast result
     response_variable: response

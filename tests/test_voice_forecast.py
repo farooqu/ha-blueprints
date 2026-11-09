@@ -160,13 +160,24 @@ async def test_nws_day_night(ha):
         features=6 | 8,
     )
     result = await call(day="today")
+    assert result["schema_version"] == 2
     assert result["status"] == "ok"
     assert result["forecast_type"] == "twice_daily"
+    assert not {
+        "source_entity",
+        "forecast_issue_time",
+        "available_first_start",
+        "available_last_start",
+        "requested_windows",
+        "error",
+        "warnings",
+    }.intersection(result)
     window = result["windows"][0]
+    assert not {"anchor_date", "status", "error"}.intersection(window)
     assert [r["period_temperature"] for r in window["periods"]] == [24, 9]
     assert [r["is_daytime"] for r in window["periods"]] == [True, False]
     assert window["context"][0]["context"] == "carry_in_context"
-    assert window["coverage"]["temporal_completeness"] == "unknown"
+    assert window["coverage"] == {"temporal_completeness": "unknown"}
     assert not any("provider_low" in r for r in window["periods"])
     assert window["summary"]["max_period_precipitation_probability"]["value"] == 80
     assert hass.states.get(ENTITY).state == "unknown"
@@ -194,6 +205,7 @@ async def test_hourly_extrema_and_units(ha):
     )
     assert result["status"] == "ok"
     window = result["windows"][0]
+    assert "context" not in window
     assert window["summary"]["sample_temperature_min"]["value"] == 4
     assert window["summary"]["sample_temperature_max"]["value"] == 17
     assert window["summary"]["sample_temperature_max"]["at"] == [
@@ -221,6 +233,8 @@ async def test_hourly_extrema_and_units(ha):
         {"day": "today", "days": 1.5},
         {"day": "today", "days": True},
         {"day": "today", "days": "2"},
+        {"day": "today", "detail": "daily"},
+        {"day": "today", "detail": None},
         {"day": "today", "weeks_later": 1},
         {"day": "today", "start_time": "12:00"},
         {"day": "today", "part_of_day": "hours"},
@@ -237,6 +251,7 @@ async def test_invalid_request(ha, args):
     _, create, call, _ = ha
     await create({})
     result = await call(**args)
+    assert result["schema_version"] == 2
     assert result["status"] == "error"
     assert result["error"]["code"] == "invalid_request"
 
@@ -246,7 +261,7 @@ async def test_calendar_and_repeated_windows(ha):
     clock("2030-01-02T00:30:00+00:00", "America/Los_Angeles")  # Still Tuesday locally.
     await create({"hourly": hourly("2030-01-01T00:00:00-08:00", 72)})
     result = await call(day="tuesday", days=3, part_of_day="morning")
-    assert [w["anchor_date"] for w in result["windows"]] == [
+    assert [w["requested_start"][:10] for w in result["windows"]] == [
         "2030-01-01",
         "2030-01-02",
         "2030-01-03",
@@ -256,9 +271,9 @@ async def test_calendar_and_repeated_windows(ha):
     assert [len(w["periods"]) for w in result["windows"]] == [0, 6, 6]
     assert all("T06:00:00-08:00" in w["requested_start"] for w in result["windows"])
     shifted = await call(day="tuesday", weeks_later=1)
-    assert shifted["requested_windows"] == ["2030-01-08"]
+    assert shifted["windows"][0]["requested_start"] == "2030-01-08T00:00:00-08:00"
     tomorrow = await call(day="tomorrow")
-    assert tomorrow["windows"][0]["anchor_date"] == "2030-01-02"
+    assert tomorrow["windows"][0]["requested_start"] == "2030-01-02T00:00:00-08:00"
 
 
 async def test_midnight_and_exact_hour(ha):
@@ -298,17 +313,18 @@ async def test_midnight_and_exact_hour(ha):
         ),
     ],
 )
-async def test_dst_whole_days(ha, date, zone, start, count, offset_end):
+@pytest.mark.parametrize("detail", ["overview", "hourly"])
+async def test_dst_whole_days(ha, date, zone, start, count, offset_end, detail):
     _, create, call, clock = ha
     clock(date, zone)
     await create({"hourly": hourly(start, count)})
-    result = await call(day="tomorrow")
+    result = await call(day="tomorrow", detail=detail)
     window = result["windows"][0]
     assert result["status"] == "ok"
     assert len(window["periods"]) == count
     assert window["requested_end"].endswith(offset_end)
     assert window["coverage"]["sample_grid_complete"] is True
-    assert window["coverage"]["missing_hourly_starts"] == []
+    assert "missing_hourly_starts" not in window["coverage"]
     assert len({p["datetime"] for p in window["periods"]}) == count
 
 
@@ -360,7 +376,7 @@ async def test_capabilities_and_horizons(ha):
     )
     coarse = await call(day="tomorrow", part_of_day="night")
     assert coarse["error"]["code"] == "precision_unavailable"
-    assert coarse["windows"][0]["summary"] == {}
+    assert "summary" not in coarse["windows"][0]
     assert coarse["windows"][0]["periods"] == []
     assert coarse["windows"][0]["context"][0]["period_temperature"] == 9
     far = await call(day="tuesday", weeks_later=1)
@@ -386,11 +402,81 @@ async def test_daily_fallback_and_no_cross_type_splicing(ha):
     assert two_days["windows"][1]["periods"][0]["provider_low"] == 11
 
 
+async def test_full_day_detail_selects_resolution(ha):
+    _, create, call, _ = ha
+    await create(
+        {
+            "daily": [period("2030-01-01", 31, native_templow=11)],
+            "twice_daily": [
+                period("2030-01-01T06:00:00Z", 24, is_daytime=True),
+                period("2030-01-01T18:00:00Z", 9, is_daytime=False),
+            ],
+            "hourly": hourly("2030-01-01T00:00:00Z", 25),
+        },
+        features=7,
+    )
+    default = await call(day="today")
+    assert await call(day="today", detail="overview") == default
+    assert default["forecast_type"] == "daily"
+    assert default["windows"][0]["periods"][0]["provider_high"] == 31
+    detailed = await call(day="today", detail="hourly")
+    assert detailed["status"] == "ok"
+    assert detailed["forecast_type"] == "hourly"
+    assert [r["temperature_sample"] for r in detailed["windows"][0]["periods"]] == list(
+        range(24)
+    )
+    assert detailed["windows"][0]["summary"]["sample_temperature_max"]["value"] == 23
+
+
+@pytest.mark.parametrize(
+    "kind,features", [("daily", 1), ("twice_daily", 4), ("twice_daily", 6)]
+)
+async def test_full_day_hourly_unavailable_is_coarse_context(ha, kind, features):
+    _, create, call, _ = ha
+    await create(
+        {
+            kind: [period("2030-01-02T06:00:00Z", 24, is_daytime=True)],
+            "hourly": hourly("2030-01-01T00:00:00Z", 24),
+        },
+        features=features,
+    )
+    result = await call(day="tomorrow", detail="hourly")
+    assert result["status"] == "error"
+    assert result["error"]["code"] == "precision_unavailable"
+    assert result["forecast_type"] == kind
+    assert result["windows"][0]["periods"] == []
+    assert result["windows"][0]["context"][0]["datetime"] == "2030-01-02T06:00:00+00:00"
+    assert "summary" not in result["windows"][0]
+
+
+async def test_full_day_hourly_partial_is_not_filled_with_daily(ha):
+    _, create, call, _ = ha
+    await create(
+        {
+            "daily": [period("2030-01-01", 31, native_templow=11)],
+            "hourly": [
+                period("2030-01-01T09:00:00Z", 4),
+                period("2030-01-01T11:00:00Z", 17),
+            ],
+        },
+        features=3,
+    )
+    result = await call(day="today", detail="hourly")
+    assert result["status"] == "partial"
+    assert result["forecast_type"] == "hourly"
+    assert [r["temperature_sample"] for r in result["windows"][0]["periods"]] == [4, 17]
+    assert (
+        "2030-01-01T10:00:00+00:00"
+        in result["windows"][0]["coverage"]["missing_hourly_starts"]
+    )
+
+
 @pytest.mark.parametrize("count,code", [(72, None), (73, "request_too_large")])
-async def test_payload_boundary(ha, count, code):
+@pytest.mark.parametrize("detail", ["overview", "hourly"])
+async def test_payload_boundary(ha, count, code, detail):
     _, create, call, _ = ha
     await create({"hourly": hourly("2030-01-01T00:00:00Z", count)})
-    result = await call(day="today", days=4)
+    result = await call(day="today", days=4, detail=detail)
     if code:
         assert result["error"]["code"] == code
         assert result["error"]["requested_records"] == 73
@@ -480,7 +566,7 @@ async def test_hourly_grid_uses_provider_phase(ha, second, complete):
     window = result["windows"][0]
     assert len(window["periods"]) == 2
     assert window["coverage"]["sample_grid_complete"] is complete
-    assert window["coverage"]["missing_hourly_starts"] == []
+    assert "missing_hourly_starts" not in window["coverage"]
     assert window["coverage"]["temporal_completeness"] == "unknown"
 
 
@@ -495,7 +581,7 @@ async def test_coarse_only_provider_cannot_answer_intraday(ha, kind, features):
     assert result["status"] == "error"
     assert result["error"]["code"] == "precision_unavailable"
     assert result["windows"][0]["periods"] == []
-    assert result["windows"][0]["summary"] == {}
+    assert "summary" not in result["windows"][0]
     assert len(result["windows"][0]["context"]) == 1
 
 
@@ -504,8 +590,11 @@ async def test_errors_preserve_resolved_windows(ha):
     await create({"hourly": hourly("2030-01-01T00:00:00Z", 24)})
     result = await call(day="tomorrow", part_of_day="morning")
     assert result["error"]["code"] == "out_of_range"
+    assert result["source_entity"] == ENTITY
+    assert result["available_first_start"] == "2030-01-01T00:00:00+00:00"
+    assert result["available_last_start"] == "2030-01-01T23:00:00+00:00"
     assert result["windows"][0]["requested_start"] == "2030-01-02T06:00:00+00:00"
-    assert result["windows"][0]["coverage"]["record_count"] == 0
+    assert result["windows"][0]["periods"] == []
 
 
 async def test_missing_units_and_unknown_values(ha):
@@ -601,10 +690,12 @@ async def test_import_reimport_and_assist_response(ha):
             "weeks_later",
             "days",
             "part_of_day",
+            "detail",
             "start_time",
             "end_time",
         }
         assert "tomorrow" in schema["properties"]["day"]["enum"]
+        assert schema["properties"]["detail"]["enum"] == ["overview", "hourly"]
         args = {"day": "today", "part_of_day": "morning"}
         result = await first_tool.async_call(
             hass, llm.ToolInput(first_tool.name, args), context
