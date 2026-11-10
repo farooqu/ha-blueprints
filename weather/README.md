@@ -1,13 +1,13 @@
 # LLM weather forecast
 
-[`voice_forecast.yaml`](voice_forecast.yaml) is a **script
+[`llm_weather_forecast.yaml`](llm_weather_forecast.yaml) is a **script
 blueprint for Home Assistant 2026.11.0 or newer**. It returns structured forecast
 data for voice or text-based Assist/LLM agents, not spoken text or current
-observations. The filename stays unchanged for existing blueprint imports.
+observations.
 
 ## Installation and updates
 
-[![Import this blueprint into Home Assistant](https://my.home-assistant.io/badges/blueprint_import.svg)](https://my.home-assistant.io/redirect/blueprint_import/?blueprint_url=https%3A%2F%2Fraw.githubusercontent.com%2Ffarooqu%2Fha-blueprints%2Fmain%2Fweather%2Fvoice_forecast.yaml)
+[![Import this blueprint into Home Assistant](https://my.home-assistant.io/badges/blueprint_import.svg)](https://my.home-assistant.io/redirect/blueprint_import/?blueprint_url=https%3A%2F%2Fraw.githubusercontent.com%2Ffarooqu%2Fha-blueprints%2Fmain%2Fweather%2Fllm_weather_forecast.yaml)
 
 The button opens Home Assistant's import dialog with this blueprint URL prefilled.
 
@@ -15,7 +15,7 @@ Installation and re-import use the [public GitHub mirror](https://github.com/far
 The button and the blueprint's `source_url` point to its public raw YAML, so HA
 does not need a forge login or credentials in the URL.
 
-1. Select the button above, or import the [raw YAML URL](https://raw.githubusercontent.com/farooqu/ha-blueprints/main/weather/voice_forecast.yaml)
+1. Select the button above, or import the [raw YAML URL](https://raw.githubusercontent.com/farooqu/ha-blueprints/main/weather/llm_weather_forecast.yaml)
    through Settings → Automations & scenes → Blueprints.
 2. Create a script, select any forecast-capable weather entity, and review the
    four configurable clock boundaries. No composite weather entity is required.
@@ -30,6 +30,16 @@ is stable; no custom deployment is involved. Re-import reloads the consuming
 scripts in HA 2026.11, retaining configured inputs and refreshing their Assist
 field metadata. Start a new conversation if an agent retains old tool metadata.
 Re-import replaces the imported blueprint; review local edits first.
+
+### Migrating from `voice_forecast.yaml`
+
+Existing imported copies continue to run, but their old source URL will no longer
+work for re-import after this rename. Import the new URL above, then update each
+existing script's `use_blueprint.path` in its YAML editor to the new blueprint's
+HA-local path. Keep the script's entity ID and `use_blueprint.input` values.
+Use the path HA assigns on import, not the repository path. Future re-imports
+use the new blueprint's source URL. No forecast behavior or input changes are
+required for this rename.
 
 ## Tool inputs
 

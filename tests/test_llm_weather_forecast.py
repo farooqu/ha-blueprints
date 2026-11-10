@@ -23,7 +23,7 @@ from homeassistant.setup import async_setup_component
 from homeassistant.util import dt as dt_util
 from homeassistant.util.unit_system import METRIC_SYSTEM, US_CUSTOMARY_SYSTEM
 
-BLUEPRINT = Path(__file__).parents[1] / "weather" / "voice_forecast.yaml"
+BLUEPRINT = Path(__file__).parents[1] / "weather" / "llm_weather_forecast.yaml"
 ENTITY = "weather.fixture"
 
 
@@ -96,7 +96,7 @@ async def ha(tmp_path):
         hass.config.time_zone = zone
 
     async def create(forecasts, features=2, inputs=None):
-        path = tmp_path / "blueprints" / "script" / "test" / "voice_forecast.yaml"
+        path = tmp_path / "blueprints" / "script" / "test" / "llm_weather_forecast.yaml"
         path.parent.mkdir(parents=True, exist_ok=True)
         if not path.exists():
             path.write_text(BLUEPRINT.read_text())
@@ -107,7 +107,7 @@ async def ha(tmp_path):
             "script": {
                 "forecast_fixture": {
                     "use_blueprint": {
-                        "path": "test/voice_forecast.yaml",
+                        "path": "test/llm_weather_forecast.yaml",
                         "input": {
                             "weather_entity": ENTITY,
                             **(inputs or {}),
@@ -643,12 +643,12 @@ async def test_import_reimport_and_assist_response(ha):
         return web.Response(text=content, content_type="text/plain")
 
     app = web.Application()
-    app.router.add_get("/voice_forecast.yaml", serve)
+    app.router.add_get("/llm_weather_forecast.yaml", serve)
     runner = web.AppRunner(app)
     await runner.setup()
     site = web.TCPSite(runner, "127.0.0.1", 0)
     await site.start()
-    url = f"http://127.0.0.1:{runner.addresses[0][1]}/voice_forecast.yaml"
+    url = f"http://127.0.0.1:{runner.addresses[0][1]}/llm_weather_forecast.yaml"
     try:
         assert await async_setup_component(hass, "network", {})
         imported = await fetch_blueprint_from_url(hass, url)
@@ -660,7 +660,7 @@ async def test_import_reimport_and_assist_response(ha):
         # The ordinary importer wrote/read a blueprint, not a custom deploy path.
         blueprints = async_get_blueprints(hass)
         await blueprints.async_add_blueprint(
-            imported.blueprint, "test/voice_forecast.yaml"
+            imported.blueprint, "test/llm_weather_forecast.yaml"
         )
         await create(
             {"hourly": hourly("2030-01-01T00:00:00Z", 24)},
@@ -713,7 +713,7 @@ async def test_import_reimport_and_assist_response(ha):
         )
         updated = await fetch_blueprint_from_url(hass, url)
         await blueprints.async_add_blueprint(
-            updated.blueprint, "test/voice_forecast.yaml", allow_override=True
+            updated.blueprint, "test/llm_weather_forecast.yaml", allow_override=True
         )
         await hass.async_block_till_done()
         refreshed = tool()
@@ -723,7 +723,7 @@ async def test_import_reimport_and_assist_response(ha):
         assert "Updated contract" in updated_schema["properties"]["day"]["description"]
         after = await call(**args)
         assert after["windows"][0]["requested_start"] == "2030-01-01T08:00:00+00:00"
-        loaded = await blueprints.async_get_blueprint("test/voice_forecast.yaml")
+        loaded = await blueprints.async_get_blueprint("test/llm_weather_forecast.yaml")
         assert loaded.metadata["source_url"] == url
     finally:
         await runner.cleanup()

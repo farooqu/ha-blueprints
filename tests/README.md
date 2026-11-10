@@ -1,6 +1,6 @@
 # Disposable Home Assistant validation
 
-These tests execute `weather/voice_forecast.yaml` itself, not a Python
+These tests execute `weather/llm_weather_forecast.yaml` itself, not a Python
 reimplementation of its templates. Each test has a fresh temporary HA config
 directory and stops its HA instance at teardown. There are no live HA calls,
 external forecast requests, deployment, public listeners, or model requests.
@@ -18,7 +18,7 @@ uv pip install --python .venv-ha/bin/python -r tests/requirements.txt
 YAML hygiene (using the project-level Orb tooling):
 
 ```sh
-.venv/bin/yamllint weather/voice_forecast.yaml
+.venv/bin/yamllint weather/llm_weather_forecast.yaml
 ```
 
 The tests use HA's actual blueprint loading/substitution and schema validation,
